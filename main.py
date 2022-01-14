@@ -158,24 +158,44 @@ def ai_check_mate(board, checkmate_moves, enemy_color, computer_turn):
     :param enemy_color: the color of the enemy pieces
     :param computer_turn: to know if it is the computer's turn or not
     """
-    #TODO make it such that it prioritizes moves that don't lead to stalemate
     possible_moves_semi_coordinates = (-1, 0, 1)
     enemy_king_possible_moves = 9  # 8 is the actual maximum number of moves a king can perform
+    initial_enemy_king_moves = 0
     best_move = (-1, -1, -1, -1)
+    best_center_distance_punishment = -40
+    enemy_king_coordinates = logic.find_king(board, enemy_color)
+    king_row, king_column = enemy_king_coordinates[0], enemy_king_coordinates[1]
+    for row in possible_moves_semi_coordinates:
+        for column in possible_moves_semi_coordinates:
+            if logic.verify_move_final(board, king_row + row, king_column + column,
+                                       king_row, king_column, True, False):
+                initial_enemy_king_moves += 1
     for move in checkmate_moves:
         potential_board = logic.verify_move_final(board, move[0], move[1], move[2], move[3], True, False)
         king_moves = 0
         enemy_king_coordinates = logic.find_king(potential_board, enemy_color)
         king_row, king_column = enemy_king_coordinates[0], enemy_king_coordinates[1]
+        enemy_king_center_distance = (abs(3.5 - king_row) + abs(3.5 - king_column))
+        center_distance_punishment = 0
         for row in possible_moves_semi_coordinates:
             for column in possible_moves_semi_coordinates:
                 if logic.verify_move_final(potential_board, king_row + row, king_column + column,
                                            king_row, king_column, True, False):
                     king_moves += 1
+                    enemy_king_new_center_distance = abs(3.5 - (king_row + row)) + abs(3.5 - (king_column + column))
+                    if enemy_king_new_center_distance > enemy_king_center_distance:
+                        center_distance_punishment += enemy_king_new_center_distance/10
+                    else:
+                        center_distance_punishment -= 5
 
         if king_moves < enemy_king_possible_moves:
             enemy_king_possible_moves = king_moves
             best_move = move
+
+        if center_distance_punishment >= best_center_distance_punishment:
+            best_center_distance_punishment = center_distance_punishment
+            best_move = move
+
 
     if best_move[0] == -1:
         print("checkmate ai did not find any moves")
@@ -183,14 +203,10 @@ def ai_check_mate(board, checkmate_moves, enemy_color, computer_turn):
     logic.move_or_select_piece(board, (best_move[1], best_move[0]), logic.square_size, logic.piece_selected, computer_turn, True)
 
 
-def print_smth(smth):
-    print("smth")
-
-
 def look_ahead_ai_v2(board, computer_turn, recursion):  # can also checkmate
     """This function goes through all the possible moves of itself and the opponent, with a customizable depth
     given by the "recursion" parameter and chooses the best one based only on material gain. By calling itself,
-    it keps adding(for its own gains) and substracting(for its opponent's gains). The final value returned
+    it keeps adding(for its own gains) and subtracting(for its opponent's gains). The final value returned
     represents each "leaf" of the tree and it chooses the best one
     :param board: the logical board
     :param computer_turn: to know if it is the computer's turn or not
@@ -200,7 +216,7 @@ def look_ahead_ai_v2(board, computer_turn, recursion):  # can also checkmate
                     (enemy_color + 'q'): 9, (enemy_color + 'k'): 0}
     color = 'w' if computer_turn else 'b'
     starting_val_enemy_pieces = find_pieces_value(board, not computer_turn)
-    best_value_captured = -50
+    best_value_captured = -51
     best_move = (-1, -1)
     best_move_piece = (-1, -1)
     checkmate_moves = []
@@ -210,27 +226,33 @@ def look_ahead_ai_v2(board, computer_turn, recursion):  # can also checkmate
                 """iterates through all the pieces and all their possible moves (iterates through 64 squares for each piece which is not efficient)"""
                 potential_board = logic.verify_move_final(board, search_row, search_column, piece[0], piece[1], True,
                                                           False)
+
                 """if the move is illegal, verify_move_final will return False, otherwise it will return a new board where the move was made"""
                 if potential_board:
-                    enemy_pieces = logic.find_color_pieces(potential_board, enemy_color)
-                    potential_min_val_enemy_pieces = 0
-                    for enemy_piece in enemy_pieces:
-                        enemy_piece_value = (potential_board[enemy_piece[0]])[enemy_piece[1]]
-                        potential_min_val_enemy_pieces += pieces_value[enemy_piece_value]
-                        """we add up all the enemy pieces' values"""
+                    if logic.checkmate(potential_board, enemy_color) == 1:
+                        value_captured = 50
+                    elif logic.checkmate(potential_board, enemy_color) == 2:
+                        value_captured = -1
+                    else:
+                        enemy_pieces = logic.find_color_pieces(potential_board, enemy_color)
+                        potential_min_val_enemy_pieces = 0
+                        for enemy_piece in enemy_pieces:
+                            enemy_piece_value = (potential_board[enemy_piece[0]])[enemy_piece[1]]
+                            potential_min_val_enemy_pieces += pieces_value[enemy_piece_value]
+                            """we add up all the enemy pieces' values"""
 
-                    value_captured = starting_val_enemy_pieces - potential_min_val_enemy_pieces
-                    if recursion:
-                        """goes to the next depth, calling itself but with a new board where the move was made, and simulates its own or the enemy's best move, depending on who's to move"""
-                        next_depth_board = logic.initialize_empty_board()
-                        logic.transfer_board(next_depth_board, potential_board)
-                        possible_loss_value = look_ahead_ai(next_depth_board, not computer_turn, recursion - 1)
-                        """by calling itself recursively, we can just subtract every value, considering that the 
-                        ally capture values will become additions through the nature of recursion"""
-                        value_captured -= possible_loss_value
-                    """in case of not being able to capture anything, we add all the neutral moves in terms of material into a list so that we can use them for the checkmate function"""
-                    if recursion == AI_DEPTH and value_captured == 0:
-                        checkmate_moves.append((search_row, search_column, piece[0], piece[1]))
+                        value_captured = starting_val_enemy_pieces - potential_min_val_enemy_pieces
+                        if recursion:
+                            """goes to the next depth, calling itself but with a new board where the move was made, and simulates its own or the enemy's best move, depending on who's to move"""
+                            next_depth_board = logic.initialize_empty_board()
+                            logic.transfer_board(next_depth_board, potential_board)
+                            possible_loss_value = look_ahead_ai(next_depth_board, not computer_turn, recursion - 1)
+                            """by calling itself recursively, we can just subtract every value, considering that the 
+                            ally capture values will become additions through the nature of recursion"""
+                            value_captured -= possible_loss_value
+                        """in case of not being able to capture anything, we add all the neutral moves in terms of material into a list so that we can use them for the checkmate function"""
+                        if recursion == AI_DEPTH and value_captured >= 0:
+                            checkmate_moves.append((search_row, search_column, piece[0], piece[1]))
 
                     """here we update the value of the best move if that's the case, along with all its coordinates"""
                     if value_captured >= best_value_captured:
@@ -243,10 +265,14 @@ def look_ahead_ai_v2(board, computer_turn, recursion):  # can also checkmate
     if best_value_captured == 0 and recursion == AI_DEPTH:
         print('called checkmate')
         ai_check_mate(board, checkmate_moves, enemy_color, computer_turn)
+        return best_value_captured
     elif recursion != AI_DEPTH:
         return best_value_captured
+    elif best_move == (-1, -1):
+        print('no move chosen')
     elif best_move != (-1, -1):
         print('moved normal ai move')
+        print(best_value_captured)
         logic.select_piece(board, best_move_piece[0], best_move_piece[1])
         logic.move_or_select_piece(board, best_move, logic.square_size, logic.piece_selected, computer_turn, True)
         return best_value_captured
@@ -363,9 +389,14 @@ def run(p, current_board, vs_computer, computer_turn):
                         if logic.choose_promotion(current_board, location):
                             running_promotion = False
 
-        elif vs_computer and not game_finished:  # ai moves
+        elif vs_computer == 1 and not game_finished:  # ai moves
             if logic.turn == computer_turn:
                 look_ahead_ai_v2(current_board, computer_turn, AI_DEPTH)
+        elif vs_computer == 2 and not game_finished:  # ai moves against ai
+            if logic.turn == computer_turn:
+                look_ahead_ai_v2(current_board, computer_turn, AI_DEPTH)
+            else:
+                dumb_ai(current_board, not computer_turn)
 
 
 
@@ -378,5 +409,5 @@ def raw_to_matrix(raw_location):
 
 if __name__ == '__main__':
     pyg.init()
-    run(pyg, BackEnd.test_board, vs_computer=True, computer_turn=False)
+    run(pyg, logic.board, vs_computer=2, computer_turn=False)
 
